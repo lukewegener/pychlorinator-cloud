@@ -302,6 +302,9 @@ class ChlorinatorLiveData:
     gpo_enabled: dict[int, bool] = field(default_factory=dict)
     gpo_use_timers: dict[int, bool] = field(default_factory=dict)
     gpo_is_custom_name: dict[int, bool] = field(default_factory=dict)
+    # Live GPO 1-4 Off/Auto/On modes and physical output state (cmd 0x00C9).
+    gpo_modes: dict[int, str] = field(default_factory=dict)
+    gpo_output_on: dict[int, bool] = field(default_factory=dict)
     valve_names: dict[int, str] = field(default_factory=dict)
     valve_enabled: dict[int, bool] = field(default_factory=dict)
     valve_use_timers: dict[int, bool] = field(default_factory=dict)
@@ -424,6 +427,17 @@ ACTION_MODES = {1: "Off", 2: "Auto", 3: "On"}
 
 BLADE_TARGET_ID = 6
 JETS_TARGET_ID = 7
+
+# Equipment action targets on cmd 0x01F4, confirmed by decrypting the official
+# app's BLE traffic: a GPO is addressed by its equipment-struct position, i.e.
+# GPO number + 1 (GPO1->2, GPO2->3, GPO3->4, GPO4->5). Verified on hardware:
+# GPO1 (jets) = target 2, GPO2 (heater) = target 3.
+GPO_ACTION_TARGETS = {1: 2, 2: 3, 3: 4, 4: 5}
+GPO_ACTION_VALUES = {"Off": 1, "Auto": 2, "On": 3}
+# Trailing bytes the app appends to every equipment action frame. The 4-byte
+# field is ignored by the controller (it accepted differing values across
+# captures); the 0x77 is constant. Replicated from the verified frame.
+_EQUIPMENT_ACTION_TAIL = bytes.fromhex("e8d6eecc77000000")
 EQUIPMENT_SETUP_CMD_IDS = {GPO_SETUP_CMD_ID, VALVE_SETUP_CMD_ID}
 RECEIVE_WATCHDOG_INTERVAL_SECONDS = 2.0
 # The relay can legitimately pause inbound frames for 10-15s during noisy Wi-Fi
@@ -1539,6 +1553,34 @@ class HaloWebSocketClient:
 
     async def set_jets_mode(self, mode: str) -> None:
         await self.set_equipment_mode(JETS_TARGET_ID, mode)
+
+    async def set_gpo_mode(self, gpo_number: int, mode: str) -> None:
+        """Set a GPO outlet (1-4) to Off/Auto/On via the 0x01F4 equipment action.
+
+        Confirmed by decrypting the official Halo ChlorGo app's BLE traffic.
+        Frame: 03 F401 <action> <target> 00*7 <4-byte value> 77 00 00 00, where
+        action is 1=Off / 2=Auto / 3=On and target is the outlet's equipment
+        struct position (GPO number + 1). The controller reads only action and
+        target; the 4-byte value is ignored (replicated for fidelity).
+        """
+        target = GPO_ACTION_TARGETS.get(gpo_number)
+        if target is None:
+            raise ValueError(f"Invalid GPO number: {gpo_number}")
+        action = GPO_ACTION_VALUES.get(mode)
+        if action is None:
+            raise ValueError(f"Invalid GPO mode: {mode}")
+        payload = bytes([action, target]) + bytes(7) + _EQUIPMENT_ACTION_TAIL
+        command = bytes([0x03]) + struct.pack("<H", ACTION_CMD_ID) + payload
+        await self.send_command(command, source=f"gpo{gpo_number}({mode})")
+        await self._refresh_after_action(STATE_CMD_ID, EQUIPMENT_MODE_CMD_ID)
+        # Optimistic echo until the refresh readback lands.
+        self.data.gpo_modes[gpo_number] = mode
+        if mode in ("On", "Off"):
+            self.data.gpo_output_on[gpo_number] = mode == "On"
+        if gpo_number == 3:
+            self.data.blade_mode = mode
+        elif gpo_number == 4:
+            self.data.jets_mode = mode
 
     async def set_heater_off(self) -> None:
         await self._send_padded_write(
@@ -2845,6 +2887,22 @@ class HaloWebSocketClient:
             # optimistic). None = NotEnabled -> entity unavailable.
             self.data.blade_mode = parsed.get("blade_mode")
             self.data.jets_mode = parsed.get("jets_mode")
+            live_modes = {
+                1: parsed.get("gpo1_mode"),
+                2: parsed.get("gpo2_mode"),
+                3: parsed.get("blade_mode"),
+                4: parsed.get("jets_mode"),
+            }
+            for gpo_number, gpo_mode in live_modes.items():
+                if gpo_mode is None:  # 255 = not fitted -> drop stale entry
+                    self.data.gpo_modes.pop(gpo_number, None)
+                else:
+                    self.data.gpo_modes[gpo_number] = gpo_mode
+            state_bitfield = parsed.get("state_bitfield", 0)
+            for gpo_number in range(1, 5):
+                self.data.gpo_output_on[gpo_number] = bool(
+                    state_bitfield & (0x01 << gpo_number)
+                )
         elif parsed.get("type") == "solar_state":
             self.data.solar_roof_temp_c = parsed.get("solar_roof_temp_c")
             self.data.solar_water_temp_c = parsed.get("solar_water_temp_c")

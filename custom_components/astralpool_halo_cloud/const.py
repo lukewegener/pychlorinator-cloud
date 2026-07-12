@@ -19,7 +19,7 @@ CONF_POST_PAIR_CLOUD_SETTLE_UNTIL = "post_pair_cloud_settle_until"
 # letting the coordinator wait before its first cloud connect.
 POST_PAIR_CLOUD_SETTLE_SECONDS = 60
 
-PLATFORMS = ["sensor", "binary_sensor", "select", "number", "button"]
+PLATFORMS = ["sensor", "binary_sensor", "select", "number", "button", "switch"]
 
 
 def default_device_name(serial_number: str | None) -> str:

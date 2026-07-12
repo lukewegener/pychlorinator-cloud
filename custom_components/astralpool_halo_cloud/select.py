@@ -62,6 +62,19 @@ JETS_SELECT_DESCRIPTION = HaloSelectEntityDescription(
     command_fn=lambda client, option: client.set_jets_mode(option),
 )
 
+
+def _gpo_select_description(gpo_number: int) -> "HaloSelectEntityDescription":
+    """Off/Auto/On select for a generic GPO outlet (Xpand/Connect port)."""
+    return HaloSelectEntityDescription(
+        key=f"gpo_{gpo_number}_mode_select",
+        name=f"GPO {gpo_number} Mode",
+        options=["Off", "Auto", "On"],
+        entity_registry_enabled_default=False,
+        value_fn=lambda data, n=gpo_number: data.gpo_modes.get(n),
+        command_fn=lambda client, option, n=gpo_number: client.set_gpo_mode(n, option),
+        is_supported_fn=lambda data, n=gpo_number: n in data.gpo_modes,
+    )
+
 HEATER_SELECT_DESCRIPTION = HaloSelectEntityDescription(
     key="heater_mode_select",
     name="Heater Mode Control",
@@ -170,6 +183,10 @@ async def async_setup_entry(
             HaloActionSelect(coordinator, JETS_SELECT_DESCRIPTION),
             HaloActionSelect(coordinator, HEATER_SELECT_DESCRIPTION),
             HaloActionSelect(coordinator, TIMER_SEASON_SELECT_DESCRIPTION),
+            *[
+                HaloActionSelect(coordinator, _gpo_select_description(n))
+                for n in range(1, 5)
+            ],
             HaloAcidDosingSelect(coordinator),
             HaloConnectionPauseSelect(coordinator),
             HaloMaintenancePeriodSelect(
