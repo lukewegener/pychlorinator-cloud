@@ -2,8 +2,11 @@
   "config": {
     "step": {
       "user": {
-        "title": "BLE Pairing / Discovery",
-        "description": "Home Assistant will guide you through Bluetooth pairing to retrieve the cloud credentials needed for normal operation."
+        "title": "AstralPool Halo Cloud",
+        "description": "Choose how to set up the integration. Bluetooth pairing retrieves the cloud credentials automatically; manual entry is for when you already have the serial, username and cloud password.",
+        "data": {
+          "setup_method": "Setup method"
+        }
       },
       "ble_discovery": {
         "title": "BLE Pairing / Discovery",
@@ -74,6 +77,14 @@
     "abort": {
       "already_configured": "This chlorinator is already configured.",
       "not_supported": "This device is not supported."
+    }
+  },
+  "selector": {
+    "setup_method": {
+      "options": {
+        "ble": "Pair via Bluetooth (recommended)",
+        "manual": "Enter cloud credentials manually"
+      }
     }
   }
 }

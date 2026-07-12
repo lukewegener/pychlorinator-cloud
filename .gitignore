@@ -35,3 +35,8 @@ Thumbs.db
 
 # Local development secrets (never tracked)
 custom_components/astralpool_halo_cloud/pychlorinator_cloud/_local_secrets.py
+
+# Local delivery patches / captures — never commit
+*.patch
+*.log
+btsnoop*
